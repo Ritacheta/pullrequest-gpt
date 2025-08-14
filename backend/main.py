@@ -29,7 +29,7 @@ async def github_webhook(request: Request):
         pr_url = payload["pull_request"]["html_url"]
 
         print(f"PR Event: {action} - {pr_title} ({pr_url})")
-        print(get_pr_diff(pr_url))
+        print("diff: ",get_pr_diff(pr_url))
 
     return {"status": "received"}
 
