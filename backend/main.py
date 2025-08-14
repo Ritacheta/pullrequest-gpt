@@ -37,6 +37,10 @@ async def github_webhook(request: Request):
 def home():
     return {"status": "AI Code Review Bot is running"}
 
+@app.get("/")
+def home():
+    return {"status": "AI Code Review Bot is running"}
+
 def is_valid_signature(payload_body, signature_header):
     if signature_header is None:
         return False
