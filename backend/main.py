@@ -2,16 +2,18 @@ from fastapi import FastAPI, Request
 import hmac
 import hashlib
 import os
+from dotenv import load_dotenv
 
 app = FastAPI()
 
-# Optional: Load from .env
-GITHUB_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "your_secret_here")
+load_dotenv()
+GITHUB_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
 
 @app.post("/webhook")
 async def github_webhook(request: Request):
     # Verify GitHub signature for security
     body = await request.body()
+    print("✅ Webhook received")
     signature = request.headers.get("X-Hub-Signature-256")
     if not is_valid_signature(body, signature):
         return {"status": "invalid signature"}
@@ -27,6 +29,10 @@ async def github_webhook(request: Request):
         print(f"PR Event: {action} - {pr_title} ({pr_url})")
 
     return {"status": "received"}
+
+@app.get("/")
+def home():
+    return {"status": "AI Code Review Bot is running"}
 
 def is_valid_signature(payload_body, signature_header):
     if signature_header is None:
