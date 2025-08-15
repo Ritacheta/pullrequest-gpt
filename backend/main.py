@@ -9,7 +9,7 @@ app = FastAPI()
 
 load_dotenv()
 GITHUB_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN_CLASSIC")
 
 @app.post("/webhook")
 async def github_webhook(request: Request):
@@ -58,4 +58,5 @@ def get_pr_diff(url):
         "Accept": "application/vnd.github.v3.diff"
     }
     r = requests.get(url, headers=headers)
+    print(r.headers)
     return r.text
