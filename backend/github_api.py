@@ -36,6 +36,8 @@ class GitHubService:
         url = f"{self.BASE_URL}/repos/{owner}/{repo}/issues/{pr_number}/comments"
         payload = {"body": body}
         r = requests.post(url, headers=self.headers_json, json=payload, timeout=30)
+        if r.status_code == 401:
+            raise PermissionError("Unauthorized")
         if r.status_code == 404:
             raise FileNotFoundError("Cannot post comment. Check repo/PR permissions.")
         if r.status_code not in (200, 201):
