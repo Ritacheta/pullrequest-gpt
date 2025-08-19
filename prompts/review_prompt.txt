@@ -1,0 +1,14 @@
+You are an expert software engineer and security reviewer.
+
+Review the following unified diff from a pull request:
+
+{diff}
+
+Return ONLY valid JSON with the following keys:
+- "code_quality": array of objects { "file": string, "line": number|null, "issue": string, "severity": "low|medium|high", "suggestion": string }
+- "security_issues": array of objects { "file": string, "line": number|null, "issue": string, "severity": "low|medium|high", "suggestion": string, "reference": string|null }
+- "performance_issues": array of objects { "file": string, "line": number|null, "issue": string, "severity": "low|medium|high", "suggestion": string }
+- "best_practices": array of objects { "file": string, "line": number|null, "issue": string, "suggestion": string }
+- "suggested_changes": array of objects { "file": string, "line_start": number|null, "line_end": number|null, "before": string, "after": string, "rationale": string }
+
+DO NOT include any text outside JSON.

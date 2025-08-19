@@ -1,0 +1,7 @@
+Given the following diff, suggest minimal refactors that improve readability, security, or performance without changing behavior.
+
+Return ONLY JSON:
+{ "refactors": [ { "file": string, "before": string, "after": string, "rationale": string } ] }
+
+Diff:
+{diff}
