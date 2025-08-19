@@ -92,6 +92,7 @@ async def webhook(
     # 4) Run LLM review
     try:
         review = engine.review_diff(diff_text)
+        # review = review_with_ollama(diff_text)
     except Exception as e:
         gh.post_pr_comment(owner, name, pr_number, f"❌ LLM review failed: `{e}`")
         raise
