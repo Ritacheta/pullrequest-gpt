@@ -4,9 +4,6 @@ from typing import Dict, Any
 from backend.config import settings
 import requests
 
-# Using OpenAI API directly (no heavy orchestration deps).
-# If you prefer LangChain, you can swap this out later.
-
 class ReviewEngine:
     def __init__(self):
         if not settings.openai_api_key:
@@ -33,6 +30,7 @@ class ReviewEngine:
             "temperature": 0,
             "messages": messages,
         }
+        print("Message: ", messages)
         r = requests.post(url, headers=headers, json=payload, timeout=60)
         if r.status_code != 200:
             raise RuntimeError(f"OpenAI HTTP {r.status_code}: {r.text}")

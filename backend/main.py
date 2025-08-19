@@ -40,7 +40,6 @@ def health():
 async def webhook(
     request: Request,
 ):
-    # 1) Verify signature
     raw = await request.body()
     print("Webhook Recieved")
     x_hub_signature_256 = request.headers.get("X-Hub-Signature-256")
@@ -48,7 +47,6 @@ async def webhook(
         print("sign")
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    # 2) Parse payload
     try:
         payload = await request.json()
     except Exception:
@@ -57,7 +55,6 @@ async def webhook(
 
     x_github_event = request.headers.get("X-GitHub-Event")
 
-    # Process only PR events we care about
     if x_github_event != "pull_request":
         return JSONResponse({"status": "ignored", "reason": "not a pull_request event"})
 
@@ -74,11 +71,9 @@ async def webhook(
     owner = repo["owner"]["login"]
     name = repo["name"]
 
-    # Optional: skip draft PRs
     if pr.get("draft"):
         return JSONResponse({"status": "skipped", "reason": "draft PR"})
 
-    # 3) Fetch diff
     try:
         diff_text = gh.get_pr_diff(owner, name, pr_number)
     except Exception as e:
@@ -89,14 +84,12 @@ async def webhook(
         gh.post_pr_comment(owner, name, pr_number, "ℹ️ No diff content found for this PR.")
         return {"status": "no_diff"}
 
-    # 4) Run LLM review
     try:
         review = engine.review_diff(diff_text)
     except Exception as e:
         gh.post_pr_comment(owner, name, pr_number, f"❌ LLM review failed: `{e}`")
         raise
 
-    # 5) Format + post comment
     comment = engine.format_review_comment(review)
     gh.post_pr_comment(owner, name, pr_number, comment)
 
