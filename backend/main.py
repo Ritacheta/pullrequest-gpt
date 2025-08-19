@@ -1,61 +1,100 @@
-from fastapi import FastAPI, Request
-import hmac
-import hashlib
-import os
-from dotenv import load_dotenv
-import requests
+from fastapi import FastAPI, Request, Header, HTTPException
+from fastapi.responses import JSONResponse
+import hmac, hashlib, json, base64
+from typing import Optional
 
-app = FastAPI()
+from .config import settings
+from .github_api import GitHubService
+from .review import ReviewEngine
 
-load_dotenv()
-GITHUB_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+app = FastAPI(title="AI Code Review Bot")
+
+gh = GitHubService()
+engine = ReviewEngine()
+
+def verify_signature(body: bytes, signature_header: Optional[str]) -> bool:
+    """
+    Verify GitHub's X-Hub-Signature-256.
+    """
+    if not settings.github_webhook_secret:
+        # If no secret is set, accept (useful for local dev). For production, require it.
+        return True
+
+    if not signature_header or not signature_header.startswith("sha256="):
+        return False
+
+    digest = hmac.new(
+        settings.github_webhook_secret.encode("utf-8"),
+        msg=body,
+        digestmod=hashlib.sha256,
+    ).hexdigest()
+
+    return hmac.compare_digest(f"sha256={digest}", signature_header)
+
+
+@app.get("/")
+def health():
+    return {"status": "AI Code Review Bot is running"}
+
 
 @app.post("/webhook")
-async def github_webhook(request: Request):
-    # Verify GitHub signature for security
-    body = await request.body()
-    print("Webhook received")
-    signature = request.headers.get("X-Hub-Signature-256")
-    if not is_valid_signature(body, signature):
-        return {"status": "invalid signature"}
+async def webhook(
+    request: Request,
+    x_github_event: Optional[str] = Header(default=None, convert_underscores=False),
+    x_hub_signature_256: Optional[str] = Header(default=None, convert_underscores=False),
+):
+    # 1) Verify signature
+    raw = await request.body()
+    if not verify_signature(raw, x_hub_signature_256):
+        raise HTTPException(status_code=401, detail="Invalid signature")
 
-    payload = await request.json()
-    event = request.headers.get("X-GitHub-Event")
+    # 2) Parse payload
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-    if event == "pull_request":
-        action = payload.get("action")
-        pr_title = payload["pull_request"]["title"]
-        pr_url = payload["pull_request"]["html_url"]
+    # Process only PR events we care about
+    if x_github_event != "pull_request":
+        return JSONResponse({"status": "ignored", "reason": "not a pull_request event"})
 
-        print(f"PR Event: {action} - {pr_title} ({pr_url})")
-        print(get_pr_diff(pr_url))
+    action = payload.get("action")
+    if action not in ("opened", "synchronize", "ready_for_review", "edited", "reopened"):
+        return JSONResponse({"status": "ignored", "reason": f"action {action} not handled"})
 
-    return {"status": "received"}
+    pr = payload.get("pull_request", {})
+    repo = payload.get("repository", {})
+    if not pr or not repo:
+        raise HTTPException(status_code=400, detail="Missing PR or repository data")
 
-@app.get("/")
-def home():
-    return {"status": "AI Code Review Bot is running"}
+    pr_number = pr["number"]
+    owner = repo["owner"]["login"]
+    name = repo["name"]
 
-@app.get("/")
-def home():
-    return {"status": "AI Code Review Bot is running"}
+    # Optional: skip draft PRs
+    if pr.get("draft"):
+        return JSONResponse({"status": "skipped", "reason": "draft PR"})
 
-def is_valid_signature(payload_body, signature_header):
-    if signature_header is None:
-        return False
-    mac = hmac.new(
-        GITHUB_SECRET.encode(),
-        msg=payload_body,
-        digestmod=hashlib.sha256
-    )
-    expected = f"sha256={mac.hexdigest()}"
-    return hmac.compare_digest(expected, signature_header)
+    # 3) Fetch diff
+    try:
+        diff_text = gh.get_pr_diff(owner, name, pr_number)
+    except Exception as e:
+        gh.post_pr_comment(owner, name, pr_number, f"❌ Failed to fetch diff: `{e}`")
+        raise
 
-def get_pr_diff(url):
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3.diff"
-    }
-    r = requests.get(url, headers=headers)
-    return r.text
+    if not diff_text.strip():
+        gh.post_pr_comment(owner, name, pr_number, "ℹ️ No diff content found for this PR.")
+        return {"status": "no_diff"}
+
+    # 4) Run LLM review
+    try:
+        review = engine.review_diff(diff_text)
+    except Exception as e:
+        gh.post_pr_comment(owner, name, pr_number, f"❌ LLM review failed: `{e}`")
+        raise
+
+    # 5) Format + post comment
+    comment = engine.format_review_comment(review)
+    gh.post_pr_comment(owner, name, pr_number, comment)
+
+    return {"status": "review_posted", "pr": pr_number}
