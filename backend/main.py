@@ -28,7 +28,6 @@ def verify_signature(body: bytes, signature_header: Optional[str]) -> bool:
         msg=body,
         digestmod=hashlib.sha256,
     ).hexdigest()
-
     return hmac.compare_digest(f"sha256={digest}", signature_header)
 
 
@@ -40,19 +39,23 @@ def health():
 @app.post("/webhook")
 async def webhook(
     request: Request,
-    x_github_event: Optional[str] = Header(default=None, convert_underscores=False),
-    x_hub_signature_256: Optional[str] = Header(default=None, convert_underscores=False),
 ):
     # 1) Verify signature
     raw = await request.body()
+    print("Webhook Recieved")
+    x_hub_signature_256 = request.headers.get("X-Hub-Signature-256")
     if not verify_signature(raw, x_hub_signature_256):
+        print("sign")
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     # 2) Parse payload
     try:
         payload = await request.json()
     except Exception:
+        print("Exception")
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    x_github_event = request.headers.get("X-GitHub-Event")
 
     # Process only PR events we care about
     if x_github_event != "pull_request":
