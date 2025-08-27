@@ -49,7 +49,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -e
-          python main.py \
+          python backend/main.py \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
             --ref "${{ github.sha }}" \
