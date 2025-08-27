@@ -1,0 +1,58 @@
+name: PR Review (pullrequest-gpt)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || true
+          # If your code is a Python package/module, install it; otherwise skip
+          # pip install .
+
+      - name: Run pullrequest-gpt
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python backend/review_pr.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --ref "${{ github.sha }}" \
+            --config "config.prgpt.yml" \
+            --out "prgpt_report.md"
+
+      - name: Comment results on PR
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          message: |
+            🤖 **pullrequest-gpt** analysis:
+            ---
+            ${{ steps.read_report.outputs.body }}
+        id: comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read report
+        id: read_report
+        run: |
+          body=$(cat prgpt_report.md | sed 's/%/%25/g' | sed 's/\n/%0A/g' | sed 's/\r/%0D/g')
+          echo "body=$body" >> $GITHUB_OUTPUT
