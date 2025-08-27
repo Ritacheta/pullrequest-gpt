@@ -1,0 +1,39 @@
+name: AI Code Review (Webhook Trigger)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+jobs:
+  call-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call external AI review webhook
+        if: ${{ !github.event.pull_request.draft }}
+        run: |
+          set -e
+          if [ -z "${WEBHOOK_URL}" ]; then
+            echo "WEBHOOK_URL is not set; skipping."
+            exit 0
+          fi
+
+          # Minimal payload (the bot reads full details from GitHub later)
+          curl -sS -X POST "${WEBHOOK_URL}" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: pull_request" \
+            -H "X-Hub-Signature-256: sha256=dummy" \
+            --data-binary @- <<'JSON'
+          {
+            "action": "${{ github.event.action }}",
+            "pull_request": {
+              "number": ${{ github.event.pull_request.number }},
+              "draft": ${{ github.event.pull_request.draft }}
+            },
+            "repository": {
+              "name": "${{ github.event.repository.name }}",
+              "owner": { "login": "${{ github.event.repository.owner.login }}" }
+            }
+          }
+          JSON
+        env:
+          WEBHOOK_URL: ${{ secrets.AI_REVIEW_WEBHOOK_URL }}
