@@ -1,77 +1,39 @@
-name: PR Review (pullrequest-gpt)
+name: AI Code Review (Webhook Trigger)
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, ready_for_review]
-
-permissions:
-  contents: read
-  pull-requests: write
-
-concurrency:
-  group: prgpt-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+    types: [opened, synchronize, reopened, edited, ready_for_review]
 
 jobs:
-  review:
-    if: github.event.pull_request.draft == false
+  call-bot:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt
-          fi
-
-      - name: Detect config file
-        id: detect
-        run: |
-          if [ -f "config.prgpt.yml" ]; then
-            echo "has_config=true" >> $GITHUB_OUTPUT
-            echo "config_arg=--config config.prgpt.yml" >> $GITHUB_OUTPUT
-          else
-            echo "has_config=false" >> $GITHUB_OUTPUT
-            echo "config_arg=" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Run pullrequest-gpt
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      - name: Call external AI review webhook
+        if: ${{ !github.event.pull_request.draft }}
         run: |
           set -e
-          python backend/main.py \
-            --repo "${{ github.repository }}" \
-            --pr "${{ github.event.pull_request.number }}" \
-            --ref "${{ github.sha }}" \
-            ${{ steps.detect.outputs.config_arg }} \
-            --out "prgpt_report.md"
+          if [ -z "${WEBHOOK_URL}" ]; then
+            echo "WEBHOOK_URL is not set; skipping."
+            exit 0
+          fi`
 
-      - name: Prepare report body
-        id: read_report
-        run: |
-          body="$(cat prgpt_report.md | sed 's/%/%25/g; s/\n/%0A/g; s/\r/%0D/g')"
-          echo "body=$body" >> $GITHUB_OUTPUT
-
-      - name: Comment results on PR
-        uses: thollander/actions-comment-pull-request@v2
-        with:
-          message: |
-            🤖 **pullrequest-gpt** analysis
-            ---
-            ${{ steps.read_report.outputs.body }}
-
-      - name: Upload report artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: prgpt-report
-          path: prgpt_report.md
+          # Minimal payload (the bot reads full details from GitHub later)
+          curl -sS -X POST "${WEBHOOK_URL}" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: pull_request" \
+            -H "X-Hub-Signature-256: sha256=dummy" \
+            --data-binary @- <<'JSON'
+          {
+            "action": "${{ github.event.action }}",
+            "pull_request": {
+              "number": ${{ github.event.pull_request.number }},
+              "draft": ${{ github.event.pull_request.draft }}
+            },
+            "repository": {
+              "name": "${{ github.event.repository.name }}",
+              "owner": { "login": "${{ github.event.repository.owner.login }}" }
+            }
+          }
+          JSON
+        env:
+          WEBHOOK_URL: ${{ secrets.AI_REVIEW_WEBHOOK_URL }}
