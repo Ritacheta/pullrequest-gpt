@@ -8,13 +8,17 @@ permissions:
   contents: read
   pull-requests: write
 
+concurrency:
+  group: prgpt-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   review:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -25,34 +29,49 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt || true
-          # If your code is a Python package/module, install it; otherwise skip
-          # pip install .
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          fi
+
+      - name: Detect config file
+        id: detect
+        run: |
+          if [ -f "config.prgpt.yml" ]; then
+            echo "has_config=true" >> $GITHUB_OUTPUT
+            echo "config_arg=--config config.prgpt.yml" >> $GITHUB_OUTPUT
+          else
+            echo "has_config=false" >> $GITHUB_OUTPUT
+            echo "config_arg=" >> $GITHUB_OUTPUT
+          fi
 
       - name: Run pullrequest-gpt
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          python backend/review_pr.py \
+          set -e
+          python main.py \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
             --ref "${{ github.sha }}" \
-            --config "config.prgpt.yml" \
+            ${{ steps.detect.outputs.config_arg }} \
             --out "prgpt_report.md"
+
+      - name: Prepare report body
+        id: read_report
+        run: |
+          body="$(cat prgpt_report.md | sed 's/%/%25/g; s/\n/%0A/g; s/\r/%0D/g')"
+          echo "body=$body" >> $GITHUB_OUTPUT
 
       - name: Comment results on PR
         uses: thollander/actions-comment-pull-request@v2
         with:
           message: |
-            🤖 **pullrequest-gpt** analysis:
+            🤖 **pullrequest-gpt** analysis
             ---
             ${{ steps.read_report.outputs.body }}
-        id: comment
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Read report
-        id: read_report
-        run: |
-          body=$(cat prgpt_report.md | sed 's/%/%25/g' | sed 's/\n/%0A/g' | sed 's/\r/%0D/g')
-          echo "body=$body" >> $GITHUB_OUTPUT
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prgpt-report
+          path: prgpt_report.md
